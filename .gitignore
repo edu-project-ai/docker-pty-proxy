@@ -1,0 +1,6 @@
+/docker-pty-proxy
+bin/
+docker-pty-proxy.exe
+docker-pty-proxy
+.env
+_build.log

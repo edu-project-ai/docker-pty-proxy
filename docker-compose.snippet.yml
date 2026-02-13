@@ -1,0 +1,26 @@
+# ============================================================
+# Add this service block to your main docker-compose.yml
+# ============================================================
+# docker-pty-proxy:
+#   build:
+#     context: ./docker-pty-proxy
+#     dockerfile: Dockerfile
+#   ports:
+#     - "8080:8080"
+#   volumes:
+#     # Linux — mount the Docker socket
+#     - /var/run/docker.sock:/var/run/docker.sock
+#     # Windows — uncomment below and comment the line above
+#     # - //./pipe/docker_engine://./pipe/docker_engine
+#   environment:
+#     - PORT=8080
+#     # Windows — uncomment below
+#     # - DOCKER_HOST=npipe:////./pipe/docker_engine
+#   restart: unless-stopped
+#   healthcheck:
+#     test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+#     interval: 10s
+#     timeout: 3s
+#     retries: 3
+
+
