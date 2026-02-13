@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	readBufSize = 4096
+	readBufSize   = 4096
 	writeDeadline = 10 * time.Second
 )
 
@@ -30,7 +30,7 @@ type resizeMsg struct {
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  readBufSize,
 	WriteBufferSize: readBufSize,
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin:     func(r *http.Request) bool { return true },
 }
 
 func Register(mux *http.ServeMux, cli *client.Client) {
@@ -57,26 +57,43 @@ func attachHandler(cli *client.Client) http.HandlerFunc {
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
 
-		log.Printf("[attach] connecting to container %s", containerID)
+		log.Printf("[attach] creating exec in container %s", containerID)
 
-		hijack, err := cli.ContainerAttach(ctx, containerID, container.AttachOptions{
-			Stream: true,
-			Stdin:  true,
-			Stdout: true,
-			Stderr: true,
+		// Create an interactive shell exec inside the container.
+		// The container runs "sleep infinity" as its main process;
+		// we exec /bin/sh with a TTY to get an actual terminal session.
+		execResp, err := cli.ContainerExecCreate(ctx, containerID, container.ExecOptions{
+			Cmd:          []string{"/bin/sh"},
+			AttachStdin:  true,
+			AttachStdout: true,
+			AttachStderr: true,
+			Tty:          true,
+			Env:          []string{"TERM=xterm"},
+			WorkingDir:   "/workspace",
 		})
 		if err != nil {
-			log.Printf("[attach] container attach error: %v", err)
-			_ = ws.WriteMessage(websocket.TextMessage, []byte("attach error: "+err.Error()))
+			log.Printf("[attach] exec create error: %v", err)
+			_ = ws.WriteMessage(websocket.TextMessage, []byte("exec create error: "+err.Error()))
+			return
+		}
+		execID := execResp.ID
+
+		hijack, err := cli.ContainerExecAttach(ctx, execID, container.ExecAttachOptions{
+			Tty: true,
+		})
+		if err != nil {
+			log.Printf("[attach] exec attach error: %v", err)
+			_ = ws.WriteMessage(websocket.TextMessage, []byte("exec attach error: "+err.Error()))
 			return
 		}
 		defer hijack.Close()
 
-		log.Printf("[attach] attached to container %s, starting bidirectional pipe", containerID)
+		log.Printf("[attach] attached to exec %s in container %s, starting bidirectional pipe", execID, containerID)
 
 		var wg sync.WaitGroup
 		wg.Add(2)
 
+		// Docker → WebSocket
 		go func() {
 			defer wg.Done()
 			defer cancel()
@@ -99,6 +116,7 @@ func attachHandler(cli *client.Client) http.HandlerFunc {
 			}
 		}()
 
+		// WebSocket → Docker
 		go func() {
 			defer wg.Done()
 			defer cancel()
@@ -117,10 +135,11 @@ func attachHandler(cli *client.Client) http.HandlerFunc {
 					continue
 				}
 
+				// JSON messages are resize commands — use exec resize, not container resize
 				if payload[0] == '{' {
 					var msg resizeMsg
 					if json.Unmarshal(payload, &msg) == nil && msg.Type == "resize" {
-						if err := cli.ContainerResize(ctx, containerID, container.ResizeOptions{
+						if err := cli.ContainerExecResize(ctx, execID, container.ResizeOptions{
 							Height: msg.Rows,
 							Width:  msg.Cols,
 						}); err != nil {
@@ -138,7 +157,7 @@ func attachHandler(cli *client.Client) http.HandlerFunc {
 		}()
 
 		wg.Wait()
-		log.Printf("[attach] session ended for container %s", containerID)
+		log.Printf("[attach] session ended for container %s (exec %s)", containerID, execID)
 	}
 }
 
