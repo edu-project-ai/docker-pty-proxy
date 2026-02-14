@@ -3,12 +3,12 @@ module github.com/edu-project-ai/docker-pty-proxy
 go 1.24.0
 
 require (
-	github.com/Microsoft/go-winio v0.6.2
 	github.com/docker/docker v27.5.1+incompatible
 	github.com/gorilla/websocket v1.5.3
 )
 
 require (
+	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/distribution/reference v0.6.0 // indirect

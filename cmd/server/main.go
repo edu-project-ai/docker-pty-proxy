@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edu-project-ai/docker-pty-proxy/internal/docker"
+	"github.com/edu-project-ai/docker-pty-proxy/internal/fs"
 	"github.com/edu-project-ai/docker-pty-proxy/internal/handler"
 )
 
@@ -35,6 +36,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	handler.Register(mux, cli)
+	fs.Register(mux, cli)
 
 	corsHandler := corsMiddleware(mux)
 
