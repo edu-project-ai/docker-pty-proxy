@@ -14,6 +14,7 @@ func Register(mux *http.ServeMux, cli *client.Client) {
 	svc := New(cli)
 	mux.HandleFunc("/fs/tree", treeHandler(svc))
 	mux.HandleFunc("/fs/file", fileHandler(svc))
+	mux.HandleFunc("/fs/search", searchHandler(svc))
 }
 
 func treeHandler(svc *Service) http.HandlerFunc {
@@ -87,6 +88,39 @@ func fileHandler(svc *Service) http.HandlerFunc {
 
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	}
+}
+
+func searchHandler(svc *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		containerID := r.URL.Query().Get("id")
+		if containerID == "" {
+			http.Error(w, `missing "id" query parameter`, http.StatusBadRequest)
+			return
+		}
+
+		query := r.URL.Query().Get("q")
+		if query == "" {
+			http.Error(w, `missing "q" query parameter`, http.StatusBadRequest)
+			return
+		}
+
+		results, err := svc.SearchFiles(r.Context(), containerID, query)
+		if err != nil {
+			log.Printf("[fs/search] error for container %s: %v", containerID, err)
+			http.Error(w, "failed to search files", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(results); err != nil {
+			log.Printf("[fs/search] encode error: %v", err)
 		}
 	}
 }

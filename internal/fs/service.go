@@ -26,6 +26,13 @@ type FileNode struct {
 	Children []*FileNode `json:"children,omitempty"`
 }
 
+type SearchResult struct {
+	File   string `json:"file"`   // relative path
+	Line   int    `json:"line"`   // line number (1-based)
+	Column int    `json:"column"` // column (1-based)
+	Text   string `json:"text"`   // matching line content
+}
+
 type Service struct {
 	cli *client.Client
 }
@@ -111,7 +118,7 @@ func buildTree(output string) ([]*FileNode, error) {
 		if len(parts) < 2 {
 			continue
 		}
-		
+
 		rawPath := parts[0]
 		rawType := parts[1]
 
@@ -210,4 +217,83 @@ func (s *Service) WriteFile(ctx context.Context, containerID, filePath, content 
 	}
 
 	return nil
+}
+
+func (s *Service) SearchFiles(ctx context.Context, containerID, query string) ([]*SearchResult, error) {
+	if query == "" {
+		return []*SearchResult{}, nil
+	}
+
+	// Use grep with line numbers and case-insensitive search
+	// Exclude hidden directories and node_modules
+	cmd := []string{
+		"sh", "-c",
+		fmt.Sprintf("grep -rn -i --exclude-dir='.*' --exclude-dir='node_modules' '%s' . 2>/dev/null || true",
+			escapeForShell(query)),
+	}
+
+	execResp, err := s.cli.ContainerExecCreate(ctx, containerID, container.ExecOptions{
+		Cmd:          cmd,
+		AttachStdout: true,
+		AttachStderr: true,
+		Tty:          false,
+		WorkingDir:   "/workspace",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("exec create: %w", err)
+	}
+
+	hijack, err := s.cli.ContainerExecAttach(ctx, execResp.ID, container.ExecAttachOptions{
+		Tty: false,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("exec attach: %w", err)
+	}
+	defer hijack.Close()
+
+	var stdout, stderr bytes.Buffer
+	if _, err := stdcopy.StdCopy(&stdout, &stderr, hijack.Reader); err != nil {
+		return nil, fmt.Errorf("read exec output: %w", err)
+	}
+
+	if stderr.Len() > 0 {
+		log.Printf("[Search] stderr: %s", stderr.String())
+	}
+
+	return parseGrepOutput(stdout.String()), nil
+}
+
+func escapeForShell(s string) string {
+	// Simple shell escaping - replace single quotes with '\''
+	return strings.ReplaceAll(s, "'", "'\\''")
+}
+
+func parseGrepOutput(output string) []*SearchResult {
+	results := make([]*SearchResult, 0)
+	lines := strings.Split(output, "\n")
+
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+
+		// Format: ./path/to/file.txt:42:matching line content
+		parts := strings.SplitN(line, ":", 3)
+		if len(parts) < 3 {
+			continue
+		}
+
+		filePath := strings.TrimPrefix(parts[0], "./")
+		lineNumber := 0
+		if n, err := fmt.Sscanf(parts[1], "%d", &lineNumber); err == nil && n == 1 {
+			results = append(results, &SearchResult{
+				File:   filePath,
+				Line:   lineNumber,
+				Column: 1, // grep doesn't provide column, default to 1
+				Text:   strings.TrimSpace(parts[2]),
+			})
+		}
+	}
+
+	return results
 }
