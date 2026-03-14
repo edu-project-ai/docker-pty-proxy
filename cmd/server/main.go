@@ -12,6 +12,7 @@ import (
 	"github.com/edu-project-ai/docker-pty-proxy/internal/docker"
 	"github.com/edu-project-ai/docker-pty-proxy/internal/fs"
 	"github.com/edu-project-ai/docker-pty-proxy/internal/handler"
+	"github.com/edu-project-ai/docker-pty-proxy/internal/proxy"
 )
 
 func main() {
@@ -40,9 +41,12 @@ func main() {
 
 	corsHandler := corsMiddleware(mux)
 
+	proxyHnd := proxy.NewHandler(cli)
+	finalHandler := proxyHnd.Middleware(corsHandler)
+
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           corsHandler,
+		Handler:           finalHandler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
