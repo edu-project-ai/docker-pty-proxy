@@ -64,8 +64,15 @@ func (s *Service) GetFileTree(ctx context.Context, containerID string) ([]*FileN
 	// %n = ім'я файлу, %F = тип (regular file / directory)
 	cmd := []string{
 		"find", ".", "-maxdepth", "4",
-		"-not", "-path", "*/.*",
-		"-not", "-path", "./node_modules*",
+		"(", "-name", ".*", "-not", "-name", ".", ")", "-prune", "-o",
+		"-type", "d", "(",
+		"-name", "node_modules", "-o",
+		"-name", "bin", "-o",
+		"-name", "obj", "-o",
+		"-name", "__pycache__", "-o",
+		"-name", "venv", "-o",
+		"-name", ".venv",
+		")", "-prune", "-o",
 		"-exec", "stat", "-c", "%n:%F", "{}", "+",
 	}
 
@@ -219,17 +226,24 @@ func (s *Service) WriteFile(ctx context.Context, containerID, filePath, content 
 	return nil
 }
 
-func (s *Service) SearchFiles(ctx context.Context, containerID, query string) ([]*SearchResult, error) {
+func (s *Service) SearchFiles(ctx context.Context, containerID, query string, matchCase bool, matchWord bool) ([]*SearchResult, error) {
 	if query == "" {
 		return []*SearchResult{}, nil
 	}
 
-	// Use grep with line numbers and case-insensitive search
-	// Exclude hidden directories and node_modules
+	grepFlags := "-Hn -F"
+	if !matchCase {
+		grepFlags += " -i"
+	}
+	if matchWord {
+		grepFlags += " -w"
+	}
+
+	// Use find + grep since Alpine Linux (BusyBox) grep doesn't support --exclude-dir
 	cmd := []string{
 		"sh", "-c",
-		fmt.Sprintf("grep -rn -i --exclude-dir='.*' --exclude-dir='node_modules' '%s' . 2>/dev/null || true",
-			escapeForShell(query)),
+		fmt.Sprintf("find . \\( -name '.*' -not -name '.' \\) -prune -o -type d \\( -name 'node_modules' -o -name 'bin' -o -name 'obj' -o -name '__pycache__' -o -name 'venv' -o -name '.venv' \\) -prune -o -type f -exec grep %s '%s' {} + 2>/dev/null || true",
+			grepFlags, escapeForShell(query)),
 	}
 
 	execResp, err := s.cli.ContainerExecCreate(ctx, containerID, container.ExecOptions{

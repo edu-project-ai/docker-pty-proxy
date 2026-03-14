@@ -111,7 +111,10 @@ func searchHandler(svc *Service) http.HandlerFunc {
 			return
 		}
 
-		results, err := svc.SearchFiles(r.Context(), containerID, query)
+		matchCase := r.URL.Query().Get("matchCase") == "true"
+		matchWord := r.URL.Query().Get("matchWord") == "true"
+
+		results, err := svc.SearchFiles(r.Context(), containerID, query, matchCase, matchWord)
 		if err != nil {
 			log.Printf("[fs/search] error for container %s: %v", containerID, err)
 			http.Error(w, "failed to search files", http.StatusInternalServerError)
